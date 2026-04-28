@@ -165,9 +165,17 @@ export function createBatchWorker(concurrency: number = 4): Worker {
 export async function addBatchJob(batch: BatchJob): Promise<string> {
   const queue = getBatchQueue();
   
-  // Generate deterministic job ID for deduplication
-  const jobId = `batch_${batch.userId}_${Date.now()}`;
-  
+  // Generate stable job ID for deduplication
+  const dedupeKey = createHash('sha256')
+    .update(
+      JSON.stringify({
+        userId: batch.userId,
+        jobs: batch.jobs.map((j) => ({ id: j.id, jdUrl: j.jdUrl, jdText: j.jdText })),
+      })
+    )
+    .digest('hex')
+    .slice(0, 24);
+  const jobId = `batch_${batch.userId}_${dedupeKey}`;
   await queue.add('process-batch', batch, {
     jobId,
     attempts: 3,
