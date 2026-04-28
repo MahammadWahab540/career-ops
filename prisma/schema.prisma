@@ -1,0 +1,222 @@
+// Career-Ops Service Database Schema
+// Multi-tenant design with isolated data per tenant
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id         String   @id @default(cuid())
+  name       String
+  status     String   @default("active") // active, suspended, deleted
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  
+  users              User[]
+  portals            Portal[]
+  portalCredentials  PortalCredential[]
+  auditLogs          AuditLog[]
+  
+  @@index([status])
+}
+
+model User {
+  id             String   @id @default(cuid())
+  tenantId       String
+  luminaUserId   String   @unique
+  status         String   @default("active")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  careerProfile  CareerProfile?
+  jobPostings    JobPosting[]
+  jobApplications JobApplication[]
+  cvRenders      CvRender[]
+  jobRuns        JobRun[]
+  auditLogs      AuditLog[]
+  
+  @@unique([tenantId, luminaUserId])
+  @@index([tenantId, status])
+}
+
+model CareerProfile {
+  userId        String   @id
+  cvMarkdown    String
+  profile       Json     // profile.yml as JSON
+  targetRoles   String[]
+  locations     String[]
+  salaryMin     Int?
+  salaryMax     Int?
+  currency      String   @default("USD")
+  updatedAt     DateTime @default(now())
+  
+  user          User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  evaluations   Evaluation[]
+  
+  @@index([userId])
+}
+
+model Portal {
+  id          String   @id @default(cuid())
+  tenantId    String
+  key         String   // greenhouse, lever, ashby, etc.
+  name        String
+  type        String   // api, playwright, mailto
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  credentials PortalCredential?
+  
+  @@unique([tenantId, key])
+  @@index([tenantId, enabled])
+}
+
+model PortalCredential {
+  id         String   @id @default(cuid())
+  portalId   String   @unique
+  tenantId   String
+  secretRef  String   // KMS key ID or encrypted blob reference
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  
+  portal     Portal @relation(fields: [portalId], references: [id], onDelete: Cascade)
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  @@index([tenantId])
+}
+
+model JobPosting {
+  id              String   @id @default(cuid())
+  userId          String
+  source          String   // manual, scan, import
+  portal          String?
+  externalId      String?
+  url             String?
+  title           String
+  company         String
+  location        String?
+  jdMarkdown      String
+  jdHash          String
+  createdAt       DateTime @default(now())
+  
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  evaluations     Evaluation[]
+  jobApplications JobApplication[]
+  cvRenders       CvRender[]
+  
+  @@unique([userId, jdHash])
+  @@index([userId, createdAt(desc)])
+  @@index([userId, source])
+}
+
+model Evaluation {
+  id          String   @id @default(cuid())
+  jobPostingId String
+  profileHash String
+  scores      Json     // 10-dimension scores
+  grade       String?  // A-F or similar
+  reportKey   String?  // S3 key for full report
+  model       String   // claude-sonnet-4-5, gemini-2.5, etc.
+  createdAt   DateTime @default(now())
+  
+  jobPosting   JobPosting @relation(fields: [jobPostingId], references: [id], onDelete: Cascade)
+  careerProfile CareerProfile @relation(fields: [profileHash], references: [userId])
+  
+  @@index([jobPostingId])
+  @@index([profileHash, createdAt(desc)])
+}
+
+model CvRender {
+  id              String   @id @default(cuid())
+  userId          String
+  jobPostingId    String?
+  pdfKey          String   // S3 key
+  sha             String   // content hash for dedup
+  templateVersion String
+  createdAt       DateTime @default(now())
+  
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobPosting      JobPosting? @relation(fields: [jobPostingId], references: [id])
+  jobApplications JobApplication[]
+  
+  @@index([userId, createdAt(desc)])
+  @@index([sha])
+}
+
+model JobApplication {
+  id                    String   @id @default(cuid())
+  userId                String
+  jobPostingId          String
+  cvRenderId            String?
+  status                String   @default("draft") // draft, submitted, interviewing, rejected, offered
+  submitTier            Int?     // 1=API, 2=Playwright, 3=mailto
+  externalApplicationId String?
+  submittedAt           DateTime?
+  lastStatusCheckAt     DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobPosting     JobPosting      @relation(fields: [jobPostingId], references: [id], onDelete: Cascade)
+  cvRender       CvRender?       @relation(fields: [cvRenderId], references: [id])
+  applicationEvents ApplicationEvent[]
+  
+  @@index([userId, status])
+  @@index([userId, createdAt(desc)])
+  @@index([jobPostingId])
+}
+
+model ApplicationEvent {
+  id            String   @id @default(cuid())
+  applicationId String
+  event         String   // submitted, status_changed, interview_scheduled, etc.
+  payload       Json
+  occurredAt    DateTime @default(now())
+  source        String   // webhook, poll, manual
+  
+  application   JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  
+  @@index([applicationId, occurredAt(desc)])
+}
+
+model JobRun {
+  id         String   @id @default(cuid())
+  type       String   // evaluate, scan, submit, cv_render
+  userId     String
+  status     String   // pending, running, completed, failed
+  payload    Json
+  error      String?
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime @default(now())
+  
+  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId, createdAt(desc)])
+  @@index([type, status])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  tenantId   String
+  actor      String   // user_id or system
+  action     String
+  target     String?  // resource being acted upon
+  ip         String?
+  ua         String?
+  occurredAt DateTime @default(now())
+  
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user       User?  @relation(fields: [actor], references: [id])
+  
+  @@index([tenantId, occurredAt(desc)])
+  @@index([actor, occurredAt(desc)])
+}

@@ -1,43 +1,45 @@
-# Personal data (user fills these)
-cv.md
-data/applications.md
-data/pipeline.md
-data/scan-history.tsv
-reports/*.md
-!reports/.gitkeep
-output/*
-!output/.gitkeep
-batch/logs/*
-!batch/logs/.gitkeep
-batch/batch-state.tsv
-batch/batch-input.tsv
-batch/tracker-additions/**/*.tsv
-!batch/tracker-additions/.gitkeep
-jds/*
-!jds/.gitkeep
-
-# User config and customization (never auto-updated)
-config/profile.yml
-portals.yml
-modes/_profile.md
-.update-dismissed
-.update-lock
-
-# Secrets (never commit — use .env.example as template)
-.env
-
-# Generated
-.resolved-prompt-*
+```
+# Dependencies
 node_modules/
-bun.lock
 
-# OS
+# Build outputs
+dist/
+build/
+target/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment variables
+.env
+.env.local
+.env.*
+
+# IDE specific
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Prisma
+prisma/migrations/
+
+# Temporary files
+*.tmp
 .DS_Store
-*.mov
-*.mp4
+Thumbs.db
 
-# Claude Code local
-.claude/settings.local.json
-.claude/memory/
-career-dashboard
-package-lock.json
+# TypeScript
+*.tsbuildinfo
+```
